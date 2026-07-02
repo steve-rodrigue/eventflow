@@ -1,8 +1,8 @@
 package components
 
 import (
+	"github.com/steve-rodrigue/eventflow/domain/events"
 	"github.com/steve-rodrigue/eventflow/domain/renderables"
-	"github.com/steve-rodrigue/eventflow/domain/renderables/components/events"
 	"github.com/steve-rodrigue/eventflow/domain/templates"
 )
 
