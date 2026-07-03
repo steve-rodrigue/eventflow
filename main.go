@@ -12,74 +12,14 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	appevents "github.com/steve-rodrigue/eventflow/applications/events"
+	"github.com/steve-rodrigue/eventflow/applications"
+	eventapps "github.com/steve-rodrigue/eventflow/applications/events"
 	applicationhttps "github.com/steve-rodrigue/eventflow/applications/servers/https"
-	domainevents "github.com/steve-rodrigue/eventflow/domain/events"
-	"github.com/steve-rodrigue/eventflow/domain/events/contexts"
 	"github.com/steve-rodrigue/eventflow/domain/events/results"
-	"github.com/steve-rodrigue/eventflow/domain/renderables"
-	renderablepages "github.com/steve-rodrigue/eventflow/domain/renderables/pages"
-	"github.com/steve-rodrigue/eventflow/domain/renderables/pages/components"
-	"github.com/steve-rodrigue/eventflow/domain/renderables/pages/heads"
-	"github.com/steve-rodrigue/eventflow/domain/renderables/pages/heads/assets"
-	"github.com/steve-rodrigue/eventflow/domain/renderables/pages/templates"
-	domaintrees "github.com/steve-rodrigue/eventflow/domain/trees"
-	renderedpages "github.com/steve-rodrigue/eventflow/domain/trees/pages"
 	"github.com/steve-rodrigue/eventflow/infrastructure/https"
 )
 
-func NewTargetResult(operationType results.OperationType, element string, html string) (results.Result, error) {
-	operation, err := NewTargetOperation(operationType, element, html)
-	if err != nil {
-		return nil, err
-	}
-
-	return results.NewBuilder().
-		Create().
-		AddOperation(operation).
-		Now()
-}
-
-func NewResultWithOperations(operations ...results.Operation) (results.Result, error) {
-	return results.NewBuilder().
-		Create().
-		WithOperations(operations).
-		Now()
-}
-
-func NewTargetOperation(operationType results.OperationType, element string, html string) (results.Operation, error) {
-	target, err := results.NewTargetBuilder().
-		Create().
-		WithElement(element).
-		WithHTML(html).
-		Now()
-	if err != nil {
-		return nil, err
-	}
-
-	action, err := results.NewActionBuilder().
-		Create().
-		WithTarget(target).
-		Now()
-	if err != nil {
-		return nil, err
-	}
-
-	return results.NewOperationBuilder().
-		Create().
-		WithType(operationType).
-		WithAction(action).
-		Now()
-}
-
-func RenderUserCard(userID string) string {
-	return fmt.Sprintf(
-		`<div id="user-card"><strong>User %s</strong> was updated from the server.</div>`,
-		template.HTMLEscapeString(userID),
-	)
-}
-
-func WebSocketHandler(app appevents.Application) http.Handler {
+func WebSocketHandler(app applications.Application) http.Handler {
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true
@@ -97,16 +37,16 @@ func WebSocketHandler(app appevents.Application) http.Handler {
 		log.Println("browser connected")
 
 		for {
-			var message appevents.IncomingMessage
+			var message eventapps.IncomingMessage
 
 			if err := conn.ReadJSON(&message); err != nil {
 				log.Println("browser disconnected:", err)
 				return
 			}
 
-			outgoing, err := app.Execute(message)
+			outgoing, err := app.Trigger(message)
 			if err != nil {
-				_ = conn.WriteJSON(appevents.OutgoingMessage{
+				_ = conn.WriteJSON(eventapps.OutgoingMessage{
 					Type:  "error",
 					Error: err.Error(),
 				})
@@ -121,41 +61,34 @@ func WebSocketHandler(app appevents.Application) http.Handler {
 	})
 }
 
-func IndexHandler(treeRenderer domaintrees.Renderer, tree domaintrees.Tree) http.Handler {
+func IndexHandler(app applications.Application) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		request, err := domaintrees.NewRequestBuilder().
-			Create().
-			WithPath(r.URL.Path).
-			WithMethod(r.Method).
-			WithLocale("en").
-			WithTarget("desktop").
-			Now()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		rendered, err := treeRenderer.Render(tree, request)
+		rendered, err := app.Route(applications.RouteRequest{
+			Path:   r.URL.Path,
+			Method: r.Method,
+			Locale: "en",
+			Target: "desktop",
+		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 
-		for _, header := range rendered.Headers() {
-			w.Header().Set(header.Name(), header.Value())
+		for _, header := range rendered.Headers {
+			w.Header().Set(header.Name, header.Value)
 		}
 
-		w.WriteHeader(rendered.HttpCode())
-		_, _ = w.Write([]byte(rendered.Body()))
+		w.WriteHeader(rendered.HttpCode)
+		_, _ = w.Write([]byte(rendered.Body))
 	})
 }
 
-func AssetsHandler(pageRenderer renderablepages.Renderer, page renderablepages.Page) http.Handler {
+func AssetsHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/assets/home.css":
 			w.Header().Set("Content-Type", "text/css; charset=utf-8")
-			_, _ = w.Write([]byte(pageRenderer.RenderStyle(page, renderables.Params{})))
+			_, _ = w.Write([]byte(""))
 
 		case "/assets/home.js":
 			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
@@ -252,99 +185,37 @@ document.addEventListener("click", (event) => {
 `
 }
 
-func MustEvent(event domainevents.Event, err error) domainevents.Event {
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return event
+func RenderUserCard(userID string) string {
+	return fmt.Sprintf(
+		`<div id="user-card"><strong>User %s</strong> was updated from the server.</div>`,
+		template.HTMLEscapeString(userID),
+	)
 }
 
-func MustTemplate(template templates.Template, err error) templates.Template {
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return template
-}
-
-func MustHead(head heads.Head, err error) heads.Head {
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return head
-}
-
-func MustComponent(component components.Component, err error) components.Component {
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return component
-}
-
-func MustPage(page renderablepages.Page, err error) renderablepages.Page {
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return page
-}
-
-func MustRoute(route domaintrees.Route, err error) domaintrees.Route {
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return route
-}
-
-func MustResource(resource domaintrees.Resource, err error) domaintrees.Resource {
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return resource
-}
-
-func MustGroup(group domaintrees.Group, err error) domaintrees.Group {
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return group
-}
-
-func MustTarget(target domaintrees.Target, err error) domaintrees.Target {
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return target
-}
-
-func MustNode(node domaintrees.Node, err error) domaintrees.Node {
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return node
-}
-
-func MustTree(tree domaintrees.Tree, err error) domaintrees.Tree {
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return tree
-}
-
-func BuildTree() (domaintrees.Tree, renderablepages.Page) {
-	pageTemplate := MustTemplate(templates.NewMustacheBuilder().
-		Create().
-		WithKeyname("page").
-		WithCode(`<!doctype html>
+func BuildTree() applications.Tree {
+	return applications.Tree{
+		Keyname: "main",
+		Nodes: []applications.Node{
+			{
+				Targets: []applications.Target{
+					{
+						Keyname: "desktop",
+						Groups: []applications.Group{
+							{
+								Keyname: "default",
+								Resources: []applications.Resource{
+									{
+										Locale: "en",
+										Route: applications.Route{
+											Pattern: "/",
+										},
+										Page: applications.Page{
+											Keyname:  "home",
+											Language: "en",
+											Renderable: applications.Renderable{
+												Template: applications.Template{
+													Keyname: "page",
+													Code: `<!doctype html>
 <html lang="{language}">
 <head>
 {head}
@@ -352,31 +223,27 @@ func BuildTree() (domaintrees.Tree, renderablepages.Page) {
 <body>
 {body}
 </body>
-</html>`).
-		Now())
-
-	head := MustHead(heads.NewBuilder().
-		Create().
-		WithTitle(MustTemplate(templates.NewMustacheBuilder().
-			Create().
-			WithKeyname("title").
-			WithCode("EventFlow WebSocket Test").
-			Now())).
-		WithDescription(MustTemplate(templates.NewMustacheBuilder().
-			Create().
-			WithKeyname("description").
-			WithCode("EventFlow server-driven UI test page.").
-			Now())).
-		WithLanguage("en").
-		Now())
-
-	body := MustComponent(components.NewBuilder(renderables.NewStylableBuilder()).
-		Create().
-		WithKeyname("body").
-		WithTemplate(MustTemplate(templates.NewMustacheBuilder().
-			Create().
-			WithKeyname("body").
-			WithCode(`
+</html>`,
+												},
+											},
+											Head: applications.Head{
+												Title: applications.Template{
+													Keyname: "title",
+													Code:    "EventFlow WebSocket Test",
+												},
+												Description: applications.Template{
+													Keyname: "description",
+													Code:    "EventFlow server-driven UI test page.",
+												},
+												Language: "en",
+											},
+											Body: applications.Component{
+												Keyname: "body",
+												StylableRenderable: applications.StylableRenderable{
+													Renderable: applications.Renderable{
+														Template: applications.Template{
+															Keyname: "body",
+															Code: `
 <main id="app">
 	<h1>EventFlow WebSocket Test</h1>
 
@@ -400,147 +267,100 @@ func BuildTree() (domaintrees.Tree, renderablepages.Page) {
 		<p>Waiting for operations...</p>
 	</section>
 </main>
-`).
-			Now())).
-		Now())
+`,
+														},
+													},
+												},
+												Events: []applications.Event{
+													{
+														Keyname: "user_updated",
+														Action: func(ctx applications.Context) (*applications.Result, error) {
+															userID, _ := ctx.Payload["userId"].(string)
 
-	page := MustPage(renderablepages.NewBuilder(renderables.NewBuilder()).
-		Create().
-		WithLanguage("en").
-		WithKeyname("home").
-		WithTemplate(pageTemplate).
-		WithHead(head).
-		WithBody(body).
-		Now())
+															return &applications.Result{
+																Operations: []applications.Operation{
+																	{
+																		Type: results.OperationTypeReplace,
+																		Action: applications.Action{
+																			Target: &applications.ActionTarget{
+																				Element: "#user-card",
+																				HTML:    RenderUserCard(userID),
+																			},
+																		},
+																	},
+																	{
+																		Type: results.OperationTypeAppend,
+																		Action: applications.Action{
+																			Target: &applications.ActionTarget{
+																				Element: "#content",
+																				HTML:    `<p>Server executed event: user_updated</p>`,
+																			},
+																		},
+																	},
+																},
+															}, nil
+														},
+													},
+													{
+														Keyname: "counter.increment",
+														Action: func(ctx applications.Context) (*applications.Result, error) {
+															amount := ctx.Payload["amount"]
 
-	resource := MustResource(domaintrees.NewResourceBuilder().
-		Create().
-		WithLocale("en").
-		WithRoute(MustRoute(domaintrees.NewRouteBuilder().
-			Create().
-			WithPattern("/").
-			Now())).
-		WithPage(page).
-		Now())
+															return &applications.Result{
+																Operations: []applications.Operation{
+																	{
+																		Type: results.OperationTypeAppend,
+																		Action: applications.Action{
+																			Target: &applications.ActionTarget{
+																				Element: "#content",
+																				HTML:    fmt.Sprintf(`<p>Server incremented counter by %v</p>`, amount),
+																			},
+																		},
+																	},
+																},
+															}, nil
+														},
+													},
+													{
+														Keyname: "message.send",
+														Action: func(ctx applications.Context) (*applications.Result, error) {
+															text, _ := ctx.Payload["text"].(string)
 
-	group := MustGroup(domaintrees.NewGroupBuilder().
-		Create().
-		WithKeyname("default").
-		AddResource(resource).
-		Now())
-
-	target := MustTarget(domaintrees.NewTargetBuilder().
-		Create().
-		WithKeyname("desktop").
-		AddGroup(group).
-		Now())
-
-	node := MustNode(domaintrees.NewNodeBuilder().
-		Create().
-		AddTarget(target).
-		Now())
-
-	tree := MustTree(domaintrees.NewBuilder().
-		Create().
-		WithKeyname("main").
-		AddNode(node).
-		Now())
-
-	return tree, page
+															return &applications.Result{
+																Operations: []applications.Operation{
+																	{
+																		Type: results.OperationTypeAppend,
+																		Action: applications.Action{
+																			Target: &applications.ActionTarget{
+																				Element: "#content",
+																				HTML:    fmt.Sprintf(`<p>Server received message: %s</p>`, template.HTMLEscapeString(text)),
+																			},
+																		},
+																	},
+																},
+															}, nil
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
 }
 
 func main() {
-	registry := domainevents.NewRegistry()
+	app := applications.NewDefaultApplication()
 
-	err := registry.ListenAll([]domainevents.Event{
-		MustEvent(domainevents.NewBuilder().
-			Create().
-			WithKeyname("user_updated").
-			WithEventName("user_updated").
-			WithAction(func(ctx contexts.Context) (results.Result, error) {
-				userID, _ := ctx.Value("userId").(string)
-
-				replaceUserCard, err := NewTargetOperation(
-					results.OperationTypeReplace,
-					"#user-card",
-					RenderUserCard(userID),
-				)
-				if err != nil {
-					return nil, err
-				}
-
-				appendMessage, err := NewTargetOperation(
-					results.OperationTypeAppend,
-					"#content",
-					`<p>Server executed event: user_updated</p>`,
-				)
-				if err != nil {
-					return nil, err
-				}
-
-				return NewResultWithOperations(replaceUserCard, appendMessage)
-			}).
-			Now()),
-
-		MustEvent(domainevents.NewBuilder().
-			Create().
-			WithKeyname("counter.increment").
-			WithEventName("counter.increment").
-			WithAction(func(ctx contexts.Context) (results.Result, error) {
-				amount := ctx.Value("amount")
-
-				return NewTargetResult(
-					results.OperationTypeAppend,
-					"#content",
-					fmt.Sprintf(`<p>Server incremented counter by %v</p>`, amount),
-				)
-			}).
-			Now()),
-
-		MustEvent(domainevents.NewBuilder().
-			Create().
-			WithKeyname("message.send").
-			WithEventName("message.send").
-			WithAction(func(ctx contexts.Context) (results.Result, error) {
-				text, _ := ctx.Value("text").(string)
-
-				return NewTargetResult(
-					results.OperationTypeAppend,
-					"#content",
-					fmt.Sprintf(`<p>Server received message: %s</p>`, template.HTMLEscapeString(text)),
-				)
-			}).
-			Now()),
-	})
-	if err != nil {
+	if err := app.Execute(BuildTree()); err != nil {
 		log.Fatal(err)
 	}
-
-	app := appevents.NewApplication(
-		contexts.NewBuilder(),
-		registry,
-	)
-
-	templateRenderer := templates.NewMustacheRenderer()
-	assetsRenderer := assets.NewRenderer()
-	headRenderer := heads.NewRenderer(templateRenderer, assetsRenderer)
-	componentRenderer := components.NewRenderer(templateRenderer)
-
-	pageRenderer := renderablepages.NewRenderer(
-		templateRenderer,
-		headRenderer,
-		componentRenderer,
-	)
-
-	treeRenderer := domaintrees.NewRenderer(
-		pageRenderer,
-		renderedpages.NewBuilder(),
-		renderedpages.NewHeaderBuilder(),
-		assets.NewBuilder(),
-		assets.NewAssetBuilder(),
-	)
-
-	tree, page := BuildTree()
 
 	apiHandler, err := applicationhttps.NewHandlerBuilder().
 		Create().
@@ -554,7 +374,7 @@ func main() {
 	assetsHandler, err := applicationhttps.NewHandlerBuilder().
 		Create().
 		WithPath("/assets/").
-		WithHandle(AssetsHandler(pageRenderer, page)).
+		WithHandle(AssetsHandler()).
 		Now()
 	if err != nil {
 		log.Fatal(err)
@@ -563,7 +383,7 @@ func main() {
 	indexHandler, err := applicationhttps.NewHandlerBuilder().
 		Create().
 		WithPath("/").
-		WithHandle(IndexHandler(treeRenderer, tree)).
+		WithHandle(IndexHandler(app)).
 		Now()
 	if err != nil {
 		log.Fatal(err)
