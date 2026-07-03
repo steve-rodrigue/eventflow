@@ -5,117 +5,14 @@ import (
 	"fmt"
 	"html/template"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
-	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/steve-rodrigue/eventflow/applications"
-	eventapps "github.com/steve-rodrigue/eventflow/applications/events"
-	applicationhttps "github.com/steve-rodrigue/eventflow/applications/servers/https"
+	eventflow "github.com/steve-rodrigue/eventflow/cmd/eventflow"
 	"github.com/steve-rodrigue/eventflow/domain/events/results"
-	"github.com/steve-rodrigue/eventflow/infrastructure/https"
 )
-
-func WebSocketHandler(app applications.Application) http.Handler {
-	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			return true
-		},
-	}
-
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			log.Println("websocket upgrade error:", err)
-			return
-		}
-		defer conn.Close()
-
-		log.Println("browser connected")
-
-		for {
-			var message eventapps.IncomingMessage
-
-			if err := conn.ReadJSON(&message); err != nil {
-				log.Println("browser disconnected:", err)
-				return
-			}
-
-			outgoing, err := app.Trigger(message)
-			if err != nil {
-				_ = conn.WriteJSON(eventapps.OutgoingMessage{
-					Type:  "error",
-					Error: err.Error(),
-				})
-				continue
-			}
-
-			if err := conn.WriteJSON(outgoing); err != nil {
-				log.Println("websocket write error:", err)
-				return
-			}
-		}
-	})
-}
-
-func IndexHandler(app applications.Application) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rendered, err := app.RenderPage(applications.RouteRequest{
-			Path:   r.URL.Path,
-			Method: r.Method,
-			Locale: "en",
-			Target: "desktop",
-		})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-
-		for _, header := range rendered.Headers {
-			w.Header().Set(header.Name, header.Value)
-		}
-
-		w.WriteHeader(rendered.HttpCode)
-		_, _ = w.Write([]byte(rendered.Body))
-	})
-}
-
-func AssetsHandler(app applications.Application) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var (
-			rendered *applications.RenderedPage
-			err      error
-		)
-
-		switch {
-		case strings.HasSuffix(r.URL.Path, ".css"):
-			rendered, err = app.RenderStyle(r.URL.Path)
-
-		case strings.HasSuffix(r.URL.Path, ".js"):
-			rendered, err = app.RenderJavascript(r.URL.Path)
-
-		default:
-			http.NotFound(w, r)
-			return
-		}
-
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-
-		for _, header := range rendered.Headers {
-			w.Header().Set(header.Name, header.Value)
-		}
-
-		w.WriteHeader(rendered.HttpCode)
-		_, _ = w.Write([]byte(rendered.Body))
-	})
-}
 
 func RenderUserCard(userID string) string {
 	return fmt.Sprintf(
@@ -329,68 +226,21 @@ func BuildTree() applications.Tree {
 
 func main() {
 	assetsBasePath := "/assets"
-	app := applications.NewDefaultApplication(
+
+	command, err := eventflow.New(
+		":8080",
 		assetsBasePath,
+		BuildTree(),
+		log.Default(),
 	)
-
-	if err := app.Initialize(BuildTree()); err != nil {
-		log.Fatal(err)
-	}
-
-	apiHandler, err := applicationhttps.NewHandlerBuilder().
-		Create().
-		WithPath("/api").
-		WithHandle(WebSocketHandler(app)).
-		Now()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	assetsHandler, err := applicationhttps.NewHandlerBuilder().
-		Create().
-		WithPath(fmt.Sprintf("%s/", assetsBasePath)).
-		WithHandle(AssetsHandler(app)).
-		Now()
-	if err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := command.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
-
-	indexHandler, err := applicationhttps.NewHandlerBuilder().
-		Create().
-		WithPath("/").
-		WithHandle(IndexHandler(app)).
-		Now()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	server := https.NewServer(":8080", []applicationhttps.Handler{
-		apiHandler,
-		assetsHandler,
-		indexHandler,
-	})
-
-	go func() {
-		log.Println("server started at http://localhost:8080")
-
-		if err := server.Start(); err != nil {
-			log.Fatal("server error:", err)
-		}
-	}()
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
-	<-stop
-
-	log.Println("stopping server...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := server.Stop(ctx); err != nil {
-		log.Fatal("server shutdown error:", err)
-	}
-
-	log.Println("server stopped")
 }
