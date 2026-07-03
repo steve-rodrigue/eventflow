@@ -14,13 +14,15 @@ func NewRenderer(
 	headerBuilder rendered_pages.HeaderBuilder,
 	assetsBuilder assets.Builder,
 	assetBuilder assets.AssetBuilder,
+	assetsBasePath string,
 ) Renderer {
 	return &renderer{
-		pageRenderer:  pageRenderer,
-		pageBuilder:   pageBuilder,
-		headerBuilder: headerBuilder,
-		assetsBuilder: assetsBuilder,
-		assetBuilder:  assetBuilder,
+		pageRenderer:   pageRenderer,
+		pageBuilder:    pageBuilder,
+		headerBuilder:  headerBuilder,
+		assetsBuilder:  assetsBuilder,
+		assetBuilder:   assetBuilder,
+		assetsBasePath: normalizeAssetsBasePath(assetsBasePath),
 	}
 }
 
@@ -72,6 +74,8 @@ func NewParamBuilder() ParamBuilder {
 // Renderer resolves a request into a rendered page.
 type Renderer interface {
 	Render(tree Tree, request Request) (rendered_pages.Page, error)
+	Style(tree Tree, uri string) (rendered_pages.Page, error)
+	Javascript(tree Tree, uri string) (rendered_pages.Page, error)
 }
 
 // RequestBuilder represents a request builder.

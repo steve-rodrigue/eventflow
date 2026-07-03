@@ -99,13 +99,69 @@ func (app *application) URI(request URIRequest) (string, error) {
 	return app.router.URI(app.tree, routeRequest)
 }
 
-func (app *application) Route(request RouteRequest) (*RenderedPage, error) {
+func (app *application) ResolveURI(request URIRequest) (string, error) {
+	if app.tree == nil {
+		return "", errors.New("application tree is not initialized")
+	}
+
+	params, err := app.toParams(request.Params)
+	if err != nil {
+		return "", err
+	}
+
+	routeRequest, err := app.routerRequestBuilder.
+		Create().
+		WithTargetKeyname(request.TargetKeyname).
+		WithGroupKeyname(request.GroupKeyname).
+		WithLocale(request.Locale).
+		WithParams(params).
+		Now()
+
+	if err != nil {
+		return "", err
+	}
+
+	return app.router.URI(app.tree, routeRequest)
+}
+
+func (app *application) RenderPage(request RouteRequest) (*RenderedPage, error) {
 	page, err := app.renderRoute(request)
 	if err != nil {
 		return nil, err
 	}
 
+	return app.toRenderedPage(page), nil
+}
+
+func (app *application) RenderStyle(uri string) (*RenderedPage, error) {
+	if app.tree == nil {
+		return nil, errors.New("application tree is not initialized")
+	}
+
+	page, err := app.treeRenderer.Style(app.tree, uri)
+	if err != nil {
+		return nil, err
+	}
+
+	return app.toRenderedPage(page), nil
+}
+
+func (app *application) RenderJavascript(uri string) (*RenderedPage, error) {
+	if app.tree == nil {
+		return nil, errors.New("application tree is not initialized")
+	}
+
+	page, err := app.treeRenderer.Javascript(app.tree, uri)
+	if err != nil {
+		return nil, err
+	}
+
+	return app.toRenderedPage(page), nil
+}
+
+func (app *application) toRenderedPage(page treepages.Page) *RenderedPage {
 	headers := make([]RenderedHeader, 0, len(page.Headers()))
+
 	for _, header := range page.Headers() {
 		headers = append(headers, RenderedHeader{
 			Name:  header.Name(),
@@ -117,27 +173,7 @@ func (app *application) Route(request RouteRequest) (*RenderedPage, error) {
 		HttpCode: page.HttpCode(),
 		Headers:  headers,
 		Body:     page.Body(),
-	}, nil
-}
-
-func (app *application) Style(request RouteRequest) (*RenderedPage, error) {
-	page, err := app.resolvePage(request)
-	if err != nil {
-		return nil, err
 	}
-
-	body := app.pageRenderer.RenderStyle(page, renderables.Params{})
-
-	return &RenderedPage{
-		HttpCode: 200,
-		Headers: []RenderedHeader{
-			{
-				Name:  "Content-Type",
-				Value: "text/css; charset=utf-8",
-			},
-		},
-		Body: body,
-	}, nil
 }
 
 func (app *application) Trigger(msg eventapps.IncomingMessage) (*eventapps.OutgoingMessage, error) {

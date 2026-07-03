@@ -19,7 +19,9 @@ import (
 )
 
 // NewDefaultApplication creates a new default application
-func NewDefaultApplication() Application {
+func NewDefaultApplication(
+	assetsBasePath string,
+) Application {
 	templateRenderer := templates.NewMustacheRenderer()
 	templateBuilder := templates.NewMustacheBuilder()
 
@@ -53,6 +55,7 @@ func NewDefaultApplication() Application {
 		treepages.NewHeaderBuilder(),
 		assets.NewBuilder(),
 		assets.NewAssetBuilder(),
+		assetsBasePath,
 	)
 
 	return NewApplication(
@@ -549,20 +552,30 @@ type RenderedHeader struct {
 /*
 Application executes an EventFlow application.
 
-Initialize initializes the application and prepares all internal
-renderers, routers and event handlers.
+Initialize builds the application tree, registers routes, events and
+all resources required to serve the application.
 
-URI generates the URI of a localized resource.
+ResolveURI generates the URI of a localized resource from its logical
+identifier.
 
-Route resolves an incoming HTTP request into a rendered page.
+RenderPage resolves an incoming request and renders the corresponding
+HTML page.
+
+RenderStyle renders the CSS asset identified by its URI.
+
+RenderJavascript renders the JavaScript asset identified by its URI.
 
 Trigger executes a browser or custom event and returns the DOM
 operations that should be applied by the client.
 */
 type Application interface {
 	Initialize(tree Tree) error
-	URI(request URIRequest) (string, error)
-	Route(request RouteRequest) (*RenderedPage, error)
-	Style(request RouteRequest) (*RenderedPage, error)
+
+	ResolveURI(request URIRequest) (string, error)
+
+	RenderPage(request RouteRequest) (*RenderedPage, error)
+	RenderStyle(uri string) (*RenderedPage, error)
+	RenderJavascript(uri string) (*RenderedPage, error)
+
 	Trigger(msg eventapps.IncomingMessage) (*eventapps.OutgoingMessage, error)
 }

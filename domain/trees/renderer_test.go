@@ -1,6 +1,7 @@
 package trees
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -119,5 +120,175 @@ func TestRendererRenderSkipsDifferentLocale(t *testing.T) {
 
 	if err == nil || err.Error() != "page not found" {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRendererRenderPassesAssetsToPageRenderer(t *testing.T) {
+	page := mustRenderablePage(t, "home")
+
+	rendered, err := newRealRenderer().Render(
+		mustTree(t, mustNode(t, mustTarget(t, "desktop", mustGroup(t, mustResource(t, "en", "/", page))))),
+		mustRequest(t, "/", "GET", "en", "desktop"),
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if !strings.Contains(rendered.Body(), `<link rel="stylesheet" href="/assets/home.css">`) {
+		t.Fatalf("expected css asset in body, got %q", rendered.Body())
+	}
+
+	if !strings.Contains(rendered.Body(), `<script src="/assets/home.js" defer></script>`) {
+		t.Fatalf("expected js asset in body, got %q", rendered.Body())
+	}
+}
+
+func TestRendererRenderUsesCustomAssetsBasePath(t *testing.T) {
+	page := mustRenderablePage(t, "home")
+
+	rendered, err := newRealRendererWithAssetsBasePath("/static/generated").Render(
+		mustTree(t, mustNode(t, mustTarget(t, "desktop", mustGroup(t, mustResource(t, "en", "/", page))))),
+		mustRequest(t, "/", "GET", "en", "desktop"),
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if !strings.Contains(rendered.Body(), `<link rel="stylesheet" href="/static/generated/home.css">`) {
+		t.Fatalf("expected custom css asset path, got %q", rendered.Body())
+	}
+
+	if !strings.Contains(rendered.Body(), `<script src="/static/generated/home.js" defer></script>`) {
+		t.Fatalf("expected custom js asset path, got %q", rendered.Body())
+	}
+}
+
+func TestRendererStyleRendersCSSForAssetURI(t *testing.T) {
+	page := mustStyledRenderablePage(t, "home")
+
+	rendered, err := newRealRenderer().Style(
+		mustTree(t, mustNode(t, mustTarget(t, "desktop", mustGroup(t, mustResource(t, "en", "/", page))))),
+		"/assets/home.css",
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if rendered.HttpCode() != 200 {
+		t.Fatalf("expected http code 200, got %d", rendered.HttpCode())
+	}
+
+	if !strings.Contains(rendered.Body(), "body") {
+		t.Fatalf("expected CSS body selector, got %q", rendered.Body())
+	}
+
+	assertHeader(t, rendered, "Content-Type", "text/css; charset=utf-8")
+}
+
+func TestRendererStyleUsesCustomAssetsBasePath(t *testing.T) {
+	page := mustRenderablePage(t, "home")
+
+	rendered, err := newRealRendererWithAssetsBasePath("/static/generated").Style(
+		mustTree(t, mustNode(t, mustTarget(t, "desktop", mustGroup(t, mustResource(t, "en", "/", page))))),
+		"/static/generated/home.css",
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	assertHeader(t, rendered, "Content-Type", "text/css; charset=utf-8")
+}
+
+func TestRendererJavascriptRendersRuntimeForAssetURI(t *testing.T) {
+	page := mustRenderablePage(t, "home")
+
+	rendered, err := newRealRenderer().Javascript(
+		mustTree(t, mustNode(t, mustTarget(t, "desktop", mustGroup(t, mustResource(t, "en", "/", page))))),
+		"/assets/home.js",
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if rendered.HttpCode() != 200 {
+		t.Fatalf("expected http code 200, got %d", rendered.HttpCode())
+	}
+
+	if !strings.Contains(rendered.Body(), `const socket = new WebSocket`) {
+		t.Fatalf("expected runtime JS, got %q", rendered.Body())
+	}
+
+	assertHeader(t, rendered, "Content-Type", "application/javascript; charset=utf-8")
+}
+
+func TestRendererJavascriptUsesCustomAssetsBasePath(t *testing.T) {
+	page := mustRenderablePage(t, "home")
+
+	rendered, err := newRealRendererWithAssetsBasePath("/static/generated").Javascript(
+		mustTree(t, mustNode(t, mustTarget(t, "desktop", mustGroup(t, mustResource(t, "en", "/", page))))),
+		"/static/generated/home.js",
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	assertHeader(t, rendered, "Content-Type", "application/javascript; charset=utf-8")
+}
+
+func TestRendererStyleReturnsErrorWhenTreeIsNil(t *testing.T) {
+	_, err := newRealRenderer().Style(nil, "/assets/home.css")
+
+	if err == nil || err.Error() != "tree is required" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRendererStyleReturnsPageNotFound(t *testing.T) {
+	_, err := newRealRenderer().Style(
+		mustTree(t),
+		"/assets/home.css",
+	)
+
+	if err == nil || err.Error() != "page not found" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRendererJavascriptReturnsErrorWhenTreeIsNil(t *testing.T) {
+	_, err := newRealRenderer().Javascript(nil, "/assets/home.js")
+
+	if err == nil || err.Error() != "tree is required" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRendererJavascriptReturnsPageNotFound(t *testing.T) {
+	_, err := newRealRenderer().Javascript(
+		mustTree(t),
+		"/assets/home.js",
+	)
+
+	if err == nil || err.Error() != "page not found" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNormalizeAssetsBasePath(t *testing.T) {
+	tests := map[string]string{
+		"":                  "/assets",
+		"/":                 "/assets",
+		"assets":            "/assets",
+		"/assets":           "/assets",
+		"/assets/":          "/assets",
+		"static/generated":  "/static/generated",
+		"/static/generated": "/static/generated",
+	}
+
+	for input, expected := range tests {
+		result := normalizeAssetsBasePath(input)
+
+		if result != expected {
+			t.Fatalf("expected %q for %q, got %q", expected, input, result)
+		}
 	}
 }

@@ -64,7 +64,7 @@ func WebSocketHandler(app applications.Application) http.Handler {
 
 func IndexHandler(app applications.Application) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rendered, err := app.Route(applications.RouteRequest{
+		rendered, err := app.RenderPage(applications.RouteRequest{
 			Path:   r.URL.Path,
 			Method: r.Method,
 			Locale: "en",
@@ -86,130 +86,35 @@ func IndexHandler(app applications.Application) http.Handler {
 
 func AssetsHandler(app applications.Application) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
+		var (
+			rendered *applications.RenderedPage
+			err      error
+		)
 
 		switch {
-		case strings.HasSuffix(path, ".css"):
-			pagePath := strings.TrimPrefix(path, "/assets/")
-			pagePath = strings.TrimSuffix(pagePath, ".css")
+		case strings.HasSuffix(r.URL.Path, ".css"):
+			rendered, err = app.RenderStyle(r.URL.Path)
 
-			if pagePath == "home" {
-				pagePath = "/"
-			} else {
-				pagePath = "/" + pagePath
-			}
-
-			rendered, err := app.Style(applications.RouteRequest{
-				Path:   pagePath,
-				Method: http.MethodGet,
-				Locale: "en",
-				Target: "desktop",
-			})
-			if err != nil {
-				http.NotFound(w, r)
-				return
-			}
-
-			for _, header := range rendered.Headers {
-				w.Header().Set(header.Name, header.Value)
-			}
-
-			w.WriteHeader(rendered.HttpCode)
-			_, _ = w.Write([]byte(rendered.Body))
-
-		case strings.HasSuffix(path, ".js"):
-			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-			_, _ = w.Write([]byte(EventFlowRuntimeJS()))
+		case strings.HasSuffix(r.URL.Path, ".js"):
+			rendered, err = app.RenderJavascript(r.URL.Path)
 
 		default:
 			http.NotFound(w, r)
+			return
 		}
+
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		for _, header := range rendered.Headers {
+			w.Header().Set(header.Name, header.Value)
+		}
+
+		w.WriteHeader(rendered.HttpCode)
+		_, _ = w.Write([]byte(rendered.Body))
 	})
-}
-
-func EventFlowRuntimeJS() string {
-	return `
-const socket = new WebSocket("ws://localhost:8080/api");
-
-function trigger(eventName, payload = {}) {
-	if (socket.readyState !== WebSocket.OPEN) {
-		console.warn("WebSocket is not connected yet");
-		return;
-	}
-
-	socket.send(JSON.stringify({
-		type: "event",
-		event: eventName,
-		payload
-	}));
-}
-
-socket.addEventListener("open", () => {
-	console.log("WebSocket connected");
-});
-
-socket.addEventListener("close", () => {
-	console.log("WebSocket disconnected");
-});
-
-socket.addEventListener("error", (error) => {
-	console.error("WebSocket error", error);
-});
-
-socket.addEventListener("message", (message) => {
-	const data = JSON.parse(message.data);
-
-	if (data.type === "operations") {
-		applyOperations(data.operations);
-	}
-});
-
-function applyOperations(operations) {
-	for (const op of operations) {
-		const target = op.target ? document.querySelector(op.target) : null;
-
-		if (op.type === "replace" && target) {
-			target.outerHTML = op.html;
-		}
-
-		if (op.type === "remove" && target) {
-			target.remove();
-		}
-
-		if (op.type === "append" && target) {
-			target.insertAdjacentHTML("beforeend", op.html);
-		}
-
-		if (op.type === "prepend" && target) {
-			target.insertAdjacentHTML("afterbegin", op.html);
-		}
-
-		if (op.type === "navigate") {
-			window.location.href = op.url;
-		}
-	}
-}
-
-document.addEventListener("click", (event) => {
-	const element = event.target.closest("[data-event]");
-
-	if (!element) {
-		return;
-	}
-
-	const payload = {};
-
-	for (const [key, value] of Object.entries(element.dataset)) {
-		if (key === "event") {
-			continue;
-		}
-
-		payload[key] = value;
-	}
-
-	trigger(element.dataset.event, payload);
-});
-`
 }
 
 func RenderUserCard(userID string) string {
@@ -423,7 +328,9 @@ func BuildTree() applications.Tree {
 }
 
 func main() {
-	app := applications.NewDefaultApplication()
+	app := applications.NewDefaultApplication(
+		"/assets",
+	)
 
 	if err := app.Initialize(BuildTree()); err != nil {
 		log.Fatal(err)

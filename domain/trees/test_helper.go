@@ -13,8 +13,11 @@ import (
 )
 
 func newRealRenderer() Renderer {
-	templateRenderer := templates.NewMustacheRenderer()
+	return newRealRendererWithAssetsBasePath("/assets")
+}
 
+func newRealRendererWithAssetsBasePath(assetsBasePath string) Renderer {
+	templateRenderer := templates.NewMustacheRenderer()
 	return NewRenderer(
 		renderable_pages.NewRenderer(
 			templateRenderer,
@@ -25,7 +28,9 @@ func newRealRenderer() Renderer {
 		rendered_pages.NewHeaderBuilder(),
 		assets.NewBuilder(),
 		assets.NewAssetBuilder(),
+		assetsBasePath,
 	)
+
 }
 
 func mustRenderablePage(t *testing.T, keyname string) renderable_pages.Page {
@@ -259,6 +264,36 @@ func mustFallback(t *testing.T, httpCode int, page renderable_pages.Page) Fallba
 	return fallback
 }
 
+func mustStyledRenderablePage(t *testing.T, keyname string) renderable_pages.Page {
+	t.Helper()
+
+	style := mustTemplate(t, "body_style", "body { color: red; }")
+
+	body, err := components.NewBuilder(renderables.NewStylableBuilder()).
+		Create().
+		WithKeyname("body").
+		WithTemplate(mustTemplate(t, "body", "<main></main>")).
+		WithStyle(style).
+		Now()
+	if err != nil {
+		t.Fatalf("expected body, got error: %v", err)
+	}
+
+	page, err := renderable_pages.NewBuilder(renderables.NewBuilder()).
+		Create().
+		WithLanguage("en").
+		WithKeyname(keyname).
+		WithTemplate(mustTemplate(t, "page_"+keyname, `<html lang="{language}"><head>{head}</head><body>{body}</body></html>`)).
+		WithHead(mustHead(t)).
+		WithBody(body).
+		Now()
+	if err != nil {
+		t.Fatalf("expected page, got error: %v", err)
+	}
+
+	return page
+}
+
 func assertRenderedPage(t *testing.T, page rendered_pages.Page, httpCode int, bodyContains string) {
 	t.Helper()
 
@@ -285,6 +320,18 @@ func assertRenderedPage(t *testing.T, page rendered_pages.Page, httpCode int, bo
 	if page.Headers()[0].Value() != "text/html; charset=utf-8" {
 		t.Fatalf("unexpected header value: %s", page.Headers()[0].Value())
 	}
+}
+
+func assertHeader(t *testing.T, page rendered_pages.Page, name string, value string) {
+	t.Helper()
+
+	for _, header := range page.Headers() {
+		if header.Name() == name && header.Value() == value {
+			return
+		}
+	}
+
+	t.Fatalf("expected header %s=%s, got %#v", name, value, page.Headers())
 }
 
 func contains(value string, expected string) bool {
