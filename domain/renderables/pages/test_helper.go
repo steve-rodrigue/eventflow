@@ -11,7 +11,7 @@ import (
 	"github.com/steve-rodrigue/eventflow/domain/renderables/pages/templates"
 )
 
-func mustPage(t *testing.T) Page {
+func MustPage(t *testing.T) Page {
 	t.Helper()
 
 	pageTemplate := mustTemplate(t, "page", strings.Join([]string{

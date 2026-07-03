@@ -12,7 +12,7 @@ import (
 )
 
 func TestRendererRenderWithRenderableParams(t *testing.T) {
-	page := mustPage(t)
+	page := MustPage(t)
 	pageAssets := mustAssets(t)
 
 	result := NewRenderer(
@@ -50,7 +50,7 @@ func TestRendererRenderWithRenderableParams(t *testing.T) {
 }
 
 func TestRendererRenderWithMapParams(t *testing.T) {
-	page := mustPage(t)
+	page := MustPage(t)
 
 	result := NewRenderer(
 		templates.NewMustacheRenderer(),
@@ -85,7 +85,7 @@ func TestRendererRenderWithMapParams(t *testing.T) {
 }
 
 func TestRendererRenderWithMissingParams(t *testing.T) {
-	page := mustPage(t)
+	page := MustPage(t)
 
 	result := NewRenderer(
 		templates.NewMustacheRenderer(),
@@ -112,7 +112,7 @@ func TestRendererRenderWithMissingParams(t *testing.T) {
 }
 
 func TestRendererRenderWithScalarParams(t *testing.T) {
-	page := mustPage(t)
+	page := MustPage(t)
 
 	result := NewRenderer(
 		templates.NewMustacheRenderer(),

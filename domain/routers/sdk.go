@@ -2,6 +2,16 @@ package routers
 
 import "github.com/steve-rodrigue/eventflow/domain/trees"
 
+// NewRouter creates a new router.
+func NewRouter() Router {
+	return &router{}
+}
+
+// NewBuilder creates a new route request builder.
+func NewBuilder() Builder {
+	return &builder{}
+}
+
 // Router generates URIs from the tree.
 type Router interface {
 	URI(tree trees.Tree, request Request) (string, error)
