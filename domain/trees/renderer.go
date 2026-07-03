@@ -34,7 +34,7 @@ func (r *renderer) Render(tree Tree, request Request) (rendered_pages.Page, erro
 		return nil, errors.New("page not found")
 	}
 
-	pageAssets, err := r.buildAssets(page)
+	pageAssets, err := r.buildAssets(page, request)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +46,6 @@ func (r *renderer) Render(tree Tree, request Request) (rendered_pages.Page, erro
 		WithName("Content-Type").
 		WithValue("text/html; charset=utf-8").
 		Now()
-
 	if err != nil {
 		return nil, err
 	}
@@ -140,11 +139,13 @@ func (r *renderer) Javascript(tree Tree, uri string) (rendered_pages.Page, error
 		Now()
 }
 
-func (r *renderer) buildAssets(page renderable_pages.Page) (assets.Assets, error) {
+func (r *renderer) buildAssets(page renderable_pages.Page, request Request) (assets.Assets, error) {
+	assetPath := r.pagePathToAssetPath(request.Path())
+
 	css, err := r.assetBuilder.
 		Create().
 		WithType(assets.AssetTypeCSS).
-		WithURL(r.assetURL(page, ".css")).
+		WithURL(assetPath + ".css").
 		Now()
 	if err != nil {
 		return nil, err
@@ -153,7 +154,7 @@ func (r *renderer) buildAssets(page renderable_pages.Page) (assets.Assets, error
 	js, err := r.assetBuilder.
 		Create().
 		WithType(assets.AssetTypeJavaScript).
-		WithURL(r.assetURL(page, ".js")).
+		WithURL(assetPath + ".js").
 		Now()
 	if err != nil {
 		return nil, err
@@ -166,8 +167,14 @@ func (r *renderer) buildAssets(page renderable_pages.Page) (assets.Assets, error
 		Now()
 }
 
-func (r *renderer) assetURL(page renderable_pages.Page, extension string) string {
-	return r.assetsBasePath + "/" + page.Keyname() + extension
+func (r *renderer) pagePathToAssetPath(path string) string {
+	path = strings.Trim(path, "/")
+
+	if path == "" {
+		path = "home"
+	}
+
+	return r.assetsBasePath + "/" + path
 }
 
 func (r *renderer) assetURIToPagePath(uri string, extension string) string {
@@ -179,6 +186,10 @@ func (r *renderer) assetURIToPagePath(uri string, extension string) string {
 	}
 
 	return "/" + path
+}
+
+func (r *renderer) assetURL(page renderable_pages.Page, extension string) string {
+	return r.assetsBasePath + "/" + page.Keyname() + extension
 }
 
 func normalizeAssetsBasePath(path string) string {
