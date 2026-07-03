@@ -328,8 +328,9 @@ func BuildTree() applications.Tree {
 }
 
 func main() {
+	assetsBasePath := "/assets"
 	app := applications.NewDefaultApplication(
-		"/assets",
+		assetsBasePath,
 	)
 
 	if err := app.Initialize(BuildTree()); err != nil {
@@ -347,7 +348,7 @@ func main() {
 
 	assetsHandler, err := applicationhttps.NewHandlerBuilder().
 		Create().
-		WithPath("/assets/").
+		WithPath(fmt.Sprintf("%s/", assetsBasePath)).
 		WithHandle(AssetsHandler(app)).
 		Now()
 	if err != nil {
