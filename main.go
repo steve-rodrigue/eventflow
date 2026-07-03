@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -83,14 +84,40 @@ func IndexHandler(app applications.Application) http.Handler {
 	})
 }
 
-func AssetsHandler() http.Handler {
+func AssetsHandler(app applications.Application) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/assets/home.css":
-			w.Header().Set("Content-Type", "text/css; charset=utf-8")
-			_, _ = w.Write([]byte(""))
+		path := r.URL.Path
 
-		case "/assets/home.js":
+		switch {
+		case strings.HasSuffix(path, ".css"):
+			pagePath := strings.TrimPrefix(path, "/assets/")
+			pagePath = strings.TrimSuffix(pagePath, ".css")
+
+			if pagePath == "home" {
+				pagePath = "/"
+			} else {
+				pagePath = "/" + pagePath
+			}
+
+			rendered, err := app.Style(applications.RouteRequest{
+				Path:   pagePath,
+				Method: http.MethodGet,
+				Locale: "en",
+				Target: "desktop",
+			})
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+
+			for _, header := range rendered.Headers {
+				w.Header().Set(header.Name, header.Value)
+			}
+
+			w.WriteHeader(rendered.HttpCode)
+			_, _ = w.Write([]byte(rendered.Body))
+
+		case strings.HasSuffix(path, ".js"):
 			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 			_, _ = w.Write([]byte(EventFlowRuntimeJS()))
 
@@ -240,6 +267,46 @@ func BuildTree() applications.Tree {
 											Body: applications.Component{
 												Keyname: "body",
 												StylableRenderable: applications.StylableRenderable{
+													Style: &applications.Template{
+														Keyname: "body_style",
+														Code: `
+													body {
+														margin: 0;
+														font-family: system-ui, sans-serif;
+														background: #111827;
+														color: #f9fafb;
+													}
+													
+													#app {
+														max-width: 760px;
+														margin: 64px auto;
+														padding: 32px;
+														background: #1f2937;
+														border-radius: 16px;
+													}
+													
+													button {
+														margin: 8px 8px 8px 0;
+														padding: 10px 14px;
+														border: 0;
+														border-radius: 8px;
+														cursor: pointer;
+														font-weight: 600;
+													}
+													
+													#user-card,
+													#content {
+														margin-top: 20px;
+														padding: 16px;
+														background: #374151;
+														border-radius: 10px;
+													}
+													
+													#content p {
+														margin: 8px 0;
+													}
+													`,
+													},
 													Renderable: applications.Renderable{
 														Template: applications.Template{
 															Keyname: "body",
@@ -358,7 +425,7 @@ func BuildTree() applications.Tree {
 func main() {
 	app := applications.NewDefaultApplication()
 
-	if err := app.Execute(BuildTree()); err != nil {
+	if err := app.Initialize(BuildTree()); err != nil {
 		log.Fatal(err)
 	}
 
@@ -374,7 +441,7 @@ func main() {
 	assetsHandler, err := applicationhttps.NewHandlerBuilder().
 		Create().
 		WithPath("/assets/").
-		WithHandle(AssetsHandler()).
+		WithHandle(AssetsHandler(app)).
 		Now()
 	if err != nil {
 		log.Fatal(err)

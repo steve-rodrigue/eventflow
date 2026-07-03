@@ -73,6 +73,8 @@ func NewDefaultApplication() Application {
 
 		treeRenderer,
 		trees.NewRequestBuilder(),
+		pageRenderer,
+
 		trees.NewBuilder(),
 		trees.NewNodeBuilder(),
 		trees.NewTargetBuilder(),
@@ -114,6 +116,8 @@ func NewApplication(
 
 	treeRenderer trees.Renderer,
 	treeRequestBuilder trees.RequestBuilder,
+	pageRenderer renderablepages.Renderer,
+
 	treeBuilder trees.Builder,
 	nodeBuilder trees.NodeBuilder,
 	targetBuilder trees.TargetBuilder,
@@ -151,14 +155,16 @@ func NewApplication(
 
 		treeRenderer:       treeRenderer,
 		treeRequestBuilder: treeRequestBuilder,
-		treeBuilder:        treeBuilder,
-		nodeBuilder:        nodeBuilder,
-		targetTreeBuilder:  targetBuilder,
-		groupBuilder:       groupBuilder,
-		fallbackBuilder:    fallbackBuilder,
-		resourceBuilder:    resourceBuilder,
-		routeBuilder:       routeBuilder,
-		paramBuilder:       paramBuilder,
+		pageRenderer:       pageRenderer,
+
+		treeBuilder:       treeBuilder,
+		nodeBuilder:       nodeBuilder,
+		targetTreeBuilder: targetBuilder,
+		groupBuilder:      groupBuilder,
+		fallbackBuilder:   fallbackBuilder,
+		resourceBuilder:   resourceBuilder,
+		routeBuilder:      routeBuilder,
+		paramBuilder:      paramBuilder,
 
 		renderableBuilder: renderableBuilder,
 		stylableBuilder:   stylableBuilder,
@@ -543,7 +549,7 @@ type RenderedHeader struct {
 /*
 Application executes an EventFlow application.
 
-Execute initializes the application and prepares all internal
+Initialize initializes the application and prepares all internal
 renderers, routers and event handlers.
 
 URI generates the URI of a localized resource.
@@ -554,8 +560,9 @@ Trigger executes a browser or custom event and returns the DOM
 operations that should be applied by the client.
 */
 type Application interface {
-	Execute(tree Tree) error
+	Initialize(tree Tree) error
 	URI(request URIRequest) (string, error)
 	Route(request RouteRequest) (*RenderedPage, error)
+	Style(request RouteRequest) (*RenderedPage, error)
 	Trigger(msg eventapps.IncomingMessage) (*eventapps.OutgoingMessage, error)
 }

@@ -2,6 +2,7 @@ package applications
 
 import (
 	"errors"
+	"strings"
 
 	eventapps "github.com/steve-rodrigue/eventflow/applications/events"
 	domainevents "github.com/steve-rodrigue/eventflow/domain/events"
@@ -14,6 +15,7 @@ import (
 	"github.com/steve-rodrigue/eventflow/domain/renderables/pages/templates"
 	"github.com/steve-rodrigue/eventflow/domain/routers"
 	"github.com/steve-rodrigue/eventflow/domain/trees"
+	treepages "github.com/steve-rodrigue/eventflow/domain/trees/pages"
 )
 
 type application struct {
@@ -36,14 +38,16 @@ type application struct {
 
 	treeRenderer       trees.Renderer
 	treeRequestBuilder trees.RequestBuilder
-	treeBuilder        trees.Builder
-	nodeBuilder        trees.NodeBuilder
-	targetTreeBuilder  trees.TargetBuilder
-	groupBuilder       trees.GroupBuilder
-	fallbackBuilder    trees.FallbackBuilder
-	resourceBuilder    trees.ResourceBuilder
-	routeBuilder       trees.RouteBuilder
-	paramBuilder       trees.ParamBuilder
+	pageRenderer       renderablepages.Renderer
+
+	treeBuilder       trees.Builder
+	nodeBuilder       trees.NodeBuilder
+	targetTreeBuilder trees.TargetBuilder
+	groupBuilder      trees.GroupBuilder
+	fallbackBuilder   trees.FallbackBuilder
+	resourceBuilder   trees.ResourceBuilder
+	routeBuilder      trees.RouteBuilder
+	paramBuilder      trees.ParamBuilder
 
 	renderableBuilder renderables.Builder
 	stylableBuilder   renderables.StylableBuilder
@@ -57,7 +61,7 @@ type application struct {
 	componentBuilder   components.Builder
 }
 
-func (app *application) Execute(tree Tree) error {
+func (app *application) Initialize(tree Tree) error {
 	domainTree, err := app.toTree(tree)
 	if err != nil {
 		return err
@@ -96,23 +100,7 @@ func (app *application) URI(request URIRequest) (string, error) {
 }
 
 func (app *application) Route(request RouteRequest) (*RenderedPage, error) {
-	if app.tree == nil {
-		return nil, errors.New("application tree is not initialized")
-	}
-
-	routeRequest, err := app.treeRequestBuilder.
-		Create().
-		WithPath(request.Path).
-		WithMethod(request.Method).
-		WithLocale(request.Locale).
-		WithTarget(request.Target).
-		Now()
-
-	if err != nil {
-		return nil, err
-	}
-
-	page, err := app.treeRenderer.Render(app.tree, routeRequest)
+	page, err := app.renderRoute(request)
 	if err != nil {
 		return nil, err
 	}
@@ -132,8 +120,130 @@ func (app *application) Route(request RouteRequest) (*RenderedPage, error) {
 	}, nil
 }
 
+func (app *application) Style(request RouteRequest) (*RenderedPage, error) {
+	page, err := app.resolvePage(request)
+	if err != nil {
+		return nil, err
+	}
+
+	body := app.pageRenderer.RenderStyle(page, renderables.Params{})
+
+	return &RenderedPage{
+		HttpCode: 200,
+		Headers: []RenderedHeader{
+			{
+				Name:  "Content-Type",
+				Value: "text/css; charset=utf-8",
+			},
+		},
+		Body: body,
+	}, nil
+}
+
 func (app *application) Trigger(msg eventapps.IncomingMessage) (*eventapps.OutgoingMessage, error) {
 	return app.eventApplication.Execute(msg)
+}
+
+func (app *application) renderRoute(request RouteRequest) (treepages.Page, error) {
+	if app.tree == nil {
+		return nil, errors.New("application tree is not initialized")
+	}
+
+	routeRequest, err := app.toTreeRouteRequest(request)
+	if err != nil {
+		return nil, err
+	}
+
+	return app.treeRenderer.Render(app.tree, routeRequest)
+}
+
+func (app *application) resolvePage(request RouteRequest) (renderablepages.Page, error) {
+	if app.tree == nil {
+		return nil, errors.New("application tree is not initialized")
+	}
+
+	routeRequest, err := app.toTreeRouteRequest(request)
+	if err != nil {
+		return nil, err
+	}
+
+	return app.findPage(app.tree, routeRequest)
+}
+
+func (app *application) toTreeRouteRequest(request RouteRequest) (trees.Request, error) {
+	return app.treeRequestBuilder.
+		Create().
+		WithPath(request.Path).
+		WithMethod(request.Method).
+		WithLocale(request.Locale).
+		WithTarget(request.Target).
+		Now()
+}
+
+func (app *application) findPage(tree trees.Tree, request trees.Request) (renderablepages.Page, error) {
+	for _, node := range tree.Nodes() {
+		for _, target := range node.Targets() {
+			if target.Keyname() != request.Target() {
+				continue
+			}
+
+			for _, group := range target.Groups() {
+				resource, ok := group.Resource(request.Locale())
+				if !ok {
+					continue
+				}
+
+				if app.routeMatches(resource.Route(), request.Path()) {
+					return resource.Page(), nil
+				}
+
+				if resource.HasChildren() {
+					page, err := app.findPage(resource.Children(), request)
+					if err == nil {
+						return page, nil
+					}
+				}
+			}
+		}
+	}
+
+	return nil, errors.New("page not found")
+}
+
+func (app *application) routeMatches(route trees.Route, path string) bool {
+	pattern := strings.Trim(route.Pattern(), "/")
+	candidate := strings.Trim(path, "/")
+
+	patternParts := splitPath(pattern)
+	candidateParts := splitPath(candidate)
+
+	if len(patternParts) != len(candidateParts) {
+		return false
+	}
+
+	for index, patternPart := range patternParts {
+		if isRouteParam(patternPart) {
+			continue
+		}
+
+		if patternPart != candidateParts[index] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func splitPath(path string) []string {
+	if path == "" {
+		return []string{}
+	}
+
+	return strings.Split(path, "/")
+}
+
+func isRouteParam(value string) bool {
+	return strings.HasPrefix(value, "{") && strings.HasSuffix(value, "}")
 }
 
 func (app *application) registerTreeEvents(tree Tree) error {
