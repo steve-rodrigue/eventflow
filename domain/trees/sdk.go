@@ -2,8 +2,72 @@ package trees
 
 import (
 	"github.com/steve-rodrigue/eventflow/domain/renderables/pages"
+	renderable_pages "github.com/steve-rodrigue/eventflow/domain/renderables/pages"
+	"github.com/steve-rodrigue/eventflow/domain/renderables/pages/heads/assets"
 	rendered_pages "github.com/steve-rodrigue/eventflow/domain/trees/pages"
 )
+
+// NewRenderer creates a new tree renderer
+func NewRenderer(
+	pageRenderer renderable_pages.Renderer,
+	pageBuilder rendered_pages.Builder,
+	headerBuilder rendered_pages.HeaderBuilder,
+	assetsBuilder assets.Builder,
+	assetBuilder assets.AssetBuilder,
+) Renderer {
+	return &renderer{
+		pageRenderer:  pageRenderer,
+		pageBuilder:   pageBuilder,
+		headerBuilder: headerBuilder,
+		assetsBuilder: assetsBuilder,
+		assetBuilder:  assetBuilder,
+	}
+}
+
+// NewRequestBuilder creates a new request builder.
+func NewRequestBuilder() RequestBuilder {
+	return &requestBuilder{}
+}
+
+// NewBuilder creates a new tree builder.
+func NewBuilder() Builder {
+	return &builder{}
+}
+
+// NewNodeBuilder creates a new node builder.
+func NewNodeBuilder() NodeBuilder {
+	return &nodeBuilder{}
+}
+
+// NewTargetBuilder creates a new target builder.
+func NewTargetBuilder() TargetBuilder {
+	return &targetBuilder{}
+}
+
+// NewGroupBuilder creates a new group builder.
+func NewGroupBuilder() GroupBuilder {
+	return &groupBuilder{}
+}
+
+// NewFallbackBuilder creates a new fallback builder.
+func NewFallbackBuilder() FallbackBuilder {
+	return &fallbackBuilder{}
+}
+
+// NewResourceBuilder creates a new resource builder.
+func NewResourceBuilder() ResourceBuilder {
+	return &resourceBuilder{}
+}
+
+// NewRouteBuilder creates a new route builder.
+func NewRouteBuilder() RouteBuilder {
+	return &routeBuilder{}
+}
+
+// NewParamBuilder creates a new param builder.
+func NewParamBuilder() ParamBuilder {
+	return &paramBuilder{}
+}
 
 // Renderer resolves a request into a rendered page.
 type Renderer interface {
@@ -46,8 +110,6 @@ type Tree interface {
 // NodeBuilder represents a node builder.
 type NodeBuilder interface {
 	Create() NodeBuilder
-	WithKeyname(keyname string) NodeBuilder
-
 	AddTarget(target Target) NodeBuilder
 	WithTargets(targets []Target) NodeBuilder
 
@@ -59,8 +121,6 @@ type NodeBuilder interface {
 
 // Node represents a logical page/resource group.
 type Node interface {
-	Keyname() string
-
 	HasTargets() bool
 	Targets() []Target
 
@@ -81,7 +141,7 @@ type TargetBuilder interface {
 	Now() (Target, error)
 }
 
-// Target represents a rendering target (desktop, mobile, print, amp...).
+// Target represents a rendering target (desktop, mobile, print, pdf...).
 type Target interface {
 	Keyname() string
 
