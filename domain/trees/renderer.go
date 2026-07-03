@@ -280,6 +280,14 @@ document.addEventListener("click", (event) => {
 			continue;
 		}
 
+		if (key.startsWith("payload")) {
+			const payloadKey = key.replace("payload", "");
+			const normalizedKey = payloadKey.charAt(0).toLowerCase() + payloadKey.slice(1);
+			const input = document.querySelector(value);
+			payload[normalizedKey] = input ? input.value : "";
+			continue;
+		}
+
 		payload[key] = value;
 	}
 
